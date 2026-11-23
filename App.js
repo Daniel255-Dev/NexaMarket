@@ -26,6 +26,8 @@ const BRAND = {
 const STORAGE_KEY = '@nexamarket:state';
 const VALID_CATEGORIES = ['Tecnología', 'Hogar', 'Deporte', 'Mascotas', 'Moda'];
 const DEFAULT_BUYER = { name: '', phone: '', municipality: '', address: '' };
+const PERSON_TEXT_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ\s'-]+$/;
+const hasPersonLetter = (value) => /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(value);
 
 const initialProducts = [
   {
@@ -42,7 +44,7 @@ const initialProducts = [
     name: 'Reloj inteligente',
     category: 'Tecnología',
     price: 245000,
-    stock: 8,
+    stock: 0,
     description: 'Reloj inteligente con seguimiento de sueño, pasos y notificaciones para una vida activa y conectada.',
     reviews: [{ rating: 5 }, { rating: 4 }, { rating: 4 }],
   },
@@ -182,6 +184,7 @@ export default function App() {
   });
   const [reviewDraft, setReviewDraft] = useState(5);
   const hasLoadedState = useRef(false);
+  const noticeTimeout = useRef(null);
 
   useEffect(() => {
     const loadState = async () => {
@@ -221,7 +224,11 @@ export default function App() {
             }))
           : [];
 
-        const restoredProducts = validProducts.length ? validProducts : initialProducts;
+        const initialProductIds = new Set(initialProducts.map((product) => product.id));
+        const restoredProducts = [
+          ...initialProducts,
+          ...validProducts.filter((product) => !initialProductIds.has(product.id)),
+        ];
         setProducts(restoredProducts);
 
         const validFavoriteIds = new Set(restoredProducts.map((product) => product.id));
@@ -323,18 +330,35 @@ export default function App() {
   const total = Math.max(subtotal + shipping - couponDiscount, 0);
 
   const showNotice = (message) => {
+    if (noticeTimeout.current) {
+      clearTimeout(noticeTimeout.current);
+    }
     setNotice(message);
     if (message) {
-      setTimeout(() => setNotice(''), 2600);
+      noticeTimeout.current = setTimeout(() => {
+        setNotice('');
+        noticeTimeout.current = null;
+      }, 2600);
     }
   };
 
+  useEffect(
+    () => () => {
+      if (noticeTimeout.current) {
+        clearTimeout(noticeTimeout.current);
+      }
+    },
+    []
+  );
+
   const toggleFavorite = (productId) => {
+    const isFavorite = favorites.includes(productId);
     setFavorites((previous) =>
       previous.includes(productId)
         ? previous.filter((id) => id !== productId)
         : [...previous, productId]
     );
+    showNotice(isFavorite ? 'Producto quitado de favoritos.' : 'Producto agregado a favoritos.');
   };
 
   const addToCart = (product) => {
@@ -343,50 +367,51 @@ export default function App() {
       return;
     }
 
+    const existing = cart.find((item) => item.id === product.id);
+    if (existing && existing.qty + 1 > product.stock) {
+      showNotice('No hay suficiente stock para esa cantidad.');
+      return;
+    }
+
     setCart((previous) => {
-      const existing = previous.find((item) => item.id === product.id);
-      if (existing) {
-        const nextQty = existing.qty + 1;
-        if (nextQty > product.stock) {
-          showNotice('No hay suficiente stock para esa cantidad.');
-          return previous;
-        }
-
-        return previous.map((item) =>
-          item.id === product.id ? { ...item, qty: nextQty } : item
-        );
-      }
-
-      return [...previous, { id: product.id, qty: 1 }];
+      return existing
+        ? previous.map((item) =>
+            item.id === product.id ? { ...item, qty: item.qty + 1 } : item
+          )
+        : [...previous, { id: product.id, qty: 1 }];
     });
+    showNotice(existing ? `Cantidad de ${product.name} actualizada.` : `${product.name} agregado al carrito.`);
   };
 
   const changeCartQty = (productId, delta) => {
-    setCart((previous) => {
-      const item = previous.find((entry) => entry.id === productId);
-      if (!item) return previous;
+    const item = cart.find((entry) => entry.id === productId);
+    const product = products.find((entry) => entry.id === productId);
+    if (!item || !product) return;
 
-      const nextQty = item.qty + delta;
-      const product = products.find((entry) => entry.id === productId);
-      if (!product) return previous;
+    const nextQty = item.qty + delta;
+    if (nextQty > product.stock) {
+      showNotice('La cantidad supera el stock disponible.');
+      return;
+    }
 
-      if (nextQty <= 0) {
-        return previous.filter((entry) => entry.id !== productId);
-      }
+    if (nextQty <= 0) {
+      setCart((previous) => previous.filter((entry) => entry.id !== productId));
+      showNotice(`${product.name} quitado del carrito.`);
+      return;
+    }
 
-      if (nextQty > product.stock) {
-        showNotice('La cantidad supera el stock disponible.');
-        return previous;
-      }
-
-      return previous.map((entry) =>
+    setCart((previous) =>
+      previous.map((entry) =>
         entry.id === productId ? { ...entry, qty: nextQty } : entry
-      );
-    });
+      )
+    );
+    showNotice(`Cantidad de ${product.name} actualizada: ${nextQty}.`);
   };
 
   const removeFromCart = (productId) => {
     setCart((previous) => previous.filter((item) => item.id !== productId));
+    const product = products.find((item) => item.id === productId);
+    if (product) showNotice(`${product.name} quitado del carrito.`);
   };
 
   const applyCoupon = () => {
@@ -429,7 +454,28 @@ export default function App() {
     };
 
     if (!cleanBuyer.name || !cleanBuyer.phone || !cleanBuyer.municipality || !cleanBuyer.address) {
-      showNotice('Completa todos los campos obligatorios de compra.');
+      showNotice('Validación fallida: completa todos los campos obligatorios de compra.');
+      return;
+    }
+
+    if (
+      !PERSON_TEXT_PATTERN.test(cleanBuyer.name) ||
+      !hasPersonLetter(cleanBuyer.name)
+    ) {
+      showNotice('Validación fallida: el nombre solo puede contener letras, espacios, apóstrofes o guiones.');
+      return;
+    }
+
+    if (
+      !PERSON_TEXT_PATTERN.test(cleanBuyer.municipality) ||
+      !hasPersonLetter(cleanBuyer.municipality)
+    ) {
+      showNotice('Validación fallida: la ciudad solo puede contener letras, espacios, apóstrofes o guiones.');
+      return;
+    }
+
+    if (!/^\d+$/.test(cleanBuyer.phone)) {
+      showNotice('Validación fallida: el teléfono solo puede contener números.');
       return;
     }
 
@@ -483,28 +529,35 @@ export default function App() {
     const productStock = Number(sellerForm.stock);
     const productDescription = sellerForm.description.trim();
 
-    if (!productId || !productName || !productCategory || !productDescription) {
-      showNotice('Completa todos los campos del producto.');
+    if (
+      !productId ||
+      !productName ||
+      !productCategory ||
+      !productDescription ||
+      !sellerForm.price.trim() ||
+      !sellerForm.stock.trim()
+    ) {
+      showNotice('Validación fallida: completa todos los campos del producto.');
       return;
     }
 
     if (!VALID_CATEGORIES.includes(productCategory)) {
-      showNotice(`La categoría debe ser una de: ${VALID_CATEGORIES.join(', ')}.`);
+      showNotice(`Validación fallida: la categoría debe ser una de: ${VALID_CATEGORIES.join(', ')}.`);
       return;
     }
 
     if (productDescription.length < 15) {
-      showNotice('La descripción debe tener al menos 15 caracteres.');
+      showNotice('Validación fallida: la descripción debe tener al menos 15 caracteres.');
       return;
     }
 
-    if (!Number.isInteger(productPrice) || productPrice <= 0) {
-      showNotice('El precio debe ser un número entero positivo.');
+    if (!/^\d+$/.test(sellerForm.price) || !Number.isInteger(productPrice) || productPrice <= 0) {
+      showNotice('Validación fallida: el precio debe ser un número entero positivo.');
       return;
     }
 
-    if (!Number.isInteger(productStock) || productStock < 0) {
-      showNotice('El stock debe ser un número entero no negativo.');
+    if (!/^\d+$/.test(sellerForm.stock) || !Number.isInteger(productStock) || productStock < 0) {
+      showNotice('Validación fallida: el stock debe ser un número entero no negativo.');
       return;
     }
 
@@ -659,6 +712,16 @@ export default function App() {
         <View style={styles.emptyState}>
           <Text style={styles.emptyTitle}>No encontramos productos</Text>
           <Text style={styles.emptyText}>Prueba con otra palabra o cambia el filtro.</Text>
+          <Pressable
+            onPress={() => {
+              setSearch('');
+              setCategoryFilter('Todas');
+              setSortMode('none');
+            }}
+            style={styles.secondaryButton}
+          >
+            <Text style={styles.secondaryButtonText}>Limpiar búsqueda y filtros</Text>
+          </Pressable>
         </View>
       )}
     </View>
