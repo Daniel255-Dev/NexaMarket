@@ -556,12 +556,12 @@ export default function App() {
     }
 
     if (!/^\d+$/.test(sellerForm.price) || !Number.isInteger(productPrice) || productPrice <= 0) {
-      showNotice('Validación fallida: el precio debe ser un número entero positivo.');
+      showNotice('Validación fallida: el precio debe ser un número entero mayor que 0.');
       return;
     }
 
     if (!/^\d+$/.test(sellerForm.stock) || !Number.isInteger(productStock) || productStock < 0) {
-      showNotice('Validación fallida: el stock debe ser un número entero no negativo.');
+      showNotice('Validación fallida: el stock debe ser un número entero igual o mayor que 0.');
       return;
     }
 
@@ -1025,14 +1025,12 @@ export default function App() {
         value={sellerForm.price}
         onChangeText={(value) => setSellerForm((previous) => ({ ...previous, price: value }))}
         placeholder="Precio en COP"
-        keyboardType="numeric"
         style={styles.input}
       />
       <TextInput
         value={sellerForm.stock}
         onChangeText={(value) => setSellerForm((previous) => ({ ...previous, stock: value }))}
         placeholder="Stock"
-        keyboardType="numeric"
         style={styles.input}
       />
       <TextInput
