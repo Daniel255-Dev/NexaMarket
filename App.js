@@ -24,6 +24,8 @@ const BRAND = {
 };
 
 const STORAGE_KEY = '@nexamarket:state';
+const COUPON_CODE = 'BIENVENIDO10';
+const COUPON_RATE = 0.1;
 const VALID_CATEGORIES = ['Tecnología', 'Hogar', 'Deporte', 'Mascotas', 'Moda'];
 const DEFAULT_BUYER = { name: '', phone: '', municipality: '', address: '' };
 const PERSON_TEXT_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ\s'-]+$/;
@@ -326,7 +328,8 @@ export default function App() {
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.qty * item.product.price, 0);
   const shipping = cartItems.length === 0 ? 0 : subtotal < 150000 ? 8000 : 0;
-  const couponDiscount = couponApplied && cartItems.length > 0 ? subtotal * 0.1 : 0;
+  const couponDiscount =
+    couponApplied && cartItems.length > 0 ? Math.round(subtotal * COUPON_RATE) : 0;
   const total = Math.max(subtotal + shipping - couponDiscount, 0);
 
   const showNotice = (message) => {
@@ -422,9 +425,9 @@ export default function App() {
       return;
     }
 
-    if (code === 'BIENVENIDO10') {
+    if (code === COUPON_CODE) {
       setCouponApplied(true);
-      showNotice('Cupón BIENVENIDO10 aplicado.');
+      showNotice(`Cupón ${COUPON_CODE} aplicado: 10% de descuento.`);
       return;
     }
 
@@ -499,6 +502,7 @@ export default function App() {
       })),
       subtotal,
       shipping,
+      couponCode: couponApplied ? COUPON_CODE : null,
       couponDiscount,
       total,
     };
@@ -842,7 +846,7 @@ export default function App() {
               <Text style={styles.summaryValue}>{shipping === 0 ? 'Gratis' : money(shipping)}</Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Descuento</Text>
+              <Text style={styles.summaryLabel}>Descuento (10%)</Text>
               <Text style={styles.summaryValue}>{couponApplied ? `-${money(couponDiscount)}` : money(0)}</Text>
             </View>
             <View style={styles.summaryRowHighlight}>
@@ -921,7 +925,7 @@ export default function App() {
           <Text style={styles.summaryValue}>{shipping === 0 ? 'Gratis' : money(shipping)}</Text>
         </View>
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Descuento</Text>
+          <Text style={styles.summaryLabel}>Descuento (10%)</Text>
           <Text style={styles.summaryValue}>{couponApplied ? `-${money(couponDiscount)}` : money(0)}</Text>
         </View>
         <View style={styles.summaryRowHighlight}>
@@ -970,8 +974,14 @@ export default function App() {
                     {item.name} x {item.qty} · {money(item.price)}
                   </Text>
                 ))}
+                <Text style={styles.orderDetailText}>Subtotal: {money(order.subtotal)}</Text>
                 <Text style={styles.orderDetailText}>Envío: {order.shipping === 0 ? 'Gratis' : money(order.shipping)}</Text>
-                <Text style={styles.orderDetailText}>Descuento: {money(order.couponDiscount || 0)}</Text>
+                <Text style={styles.orderDetailText}>
+                  Cupón: {order.couponCode || (order.couponDiscount > 0 ? COUPON_CODE : 'No aplicado')}
+                </Text>
+                <Text style={styles.orderDetailText}>
+                  Descuento (10%): -{money(order.couponDiscount || 0)}
+                </Text>
                 <Text style={styles.orderDetailText}>Total final: {money(order.total)}</Text>
               </View>
             )}
