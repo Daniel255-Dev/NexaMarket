@@ -9,6 +9,7 @@ import {
   Text,
   TextInput,
   View,
+  Share,
 } from 'react-native';
 
 const BRAND = {
@@ -27,23 +28,39 @@ const STORAGE_KEY = '@nexamarket:state';
 const COUPON_CODE = 'BIENVENIDO10';
 const COUPON_RATE = 0.1;
 const VALID_CATEGORIES = ['Tecnología', 'Hogar', 'Deporte', 'Mascotas', 'Moda'];
+const VALID_SHIPPING_MODES = ['Estándar', 'Exprés'];
+const SHIPPING_RATES = {
+  Mosquera: { 'Estándar': 6000, 'Exprés': 10000, days: '1 a 2 días' },
+  Funza: { 'Estándar': 8000, 'Exprés': 12000, days: '1 a 2 días' },
+  Madrid: { 'Estándar': 10000, 'Exprés': 14000, days: '1 a 3 días' },
+};
 const DEFAULT_BUYER = { name: '', phone: '', municipality: '', address: '' };
 const PERSON_TEXT_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ\s'-]+$/;
 const hasPersonLetter = (value) => /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(value);
+const getProductVariants = (product) =>
+  Array.isArray(product?.variants) && product.variants.length
+    ? product.variants
+    : null;
 
 const initialProducts = [
   {
     id: 'PROD-001',
     name: 'Audífonos inalámbricos',
+    brand: 'NexaSound',
     category: 'Tecnología',
     price: 189000,
     stock: 14,
+    variants: [
+      { id: 'PROD-001-NEGRO', label: 'Negro', price: 189000, stock: 8 },
+      { id: 'PROD-001-BLANCO', label: 'Blanco', price: 199000, stock: 6 },
+    ],
     description: 'Audio envolvente con cancelación de ruido y batería de larga duración para estudiar o trabajar sin distracciones.',
     reviews: [{ rating: 5 }, { rating: 4 }, { rating: 5 }, { rating: 5 }],
   },
   {
     id: 'PROD-002',
     name: 'Reloj inteligente',
+    brand: 'PulseFit',
     category: 'Tecnología',
     price: 245000,
     stock: 0,
@@ -53,6 +70,7 @@ const initialProducts = [
   {
     id: 'PROD-003',
     name: 'Cámara compacta',
+    brand: 'LensGo',
     category: 'Tecnología',
     price: 329000,
     stock: 5,
@@ -62,9 +80,14 @@ const initialProducts = [
   {
     id: 'PROD-004',
     name: 'Lámpara de escritorio',
+    brand: 'Luma',
     category: 'Hogar',
     price: 89000,
     stock: 11,
+    variants: [
+      { id: 'PROD-004-PEQUENA', label: 'Pequeña', price: 89000, stock: 7 },
+      { id: 'PROD-004-GRANDE', label: 'Grande', price: 109000, stock: 4 },
+    ],
     description: 'Luz cálida con ajuste de intensidad para crear ambientes cómodos en dormitorios, salones y escritorios.',
     reviews: [{ rating: 4 }, { rating: 5 }, { rating: 4 }],
   },
@@ -89,9 +112,15 @@ const initialProducts = [
   {
     id: 'PROD-007',
     name: 'Mancuernas 5 kg',
+    brand: 'PowerHome',
     category: 'Deporte',
     price: 129000,
     stock: 9,
+    variants: [
+      { id: 'PROD-007-3KG', label: '3 kg', price: 89000, stock: 5 },
+      { id: 'PROD-007-5KG', label: '5 kg', price: 129000, stock: 4 },
+      { id: 'PROD-007-8KG', label: '8 kg', price: 169000, stock: 0 },
+    ],
     description: 'Par de mancuernas con agarre ergonómico para entrenamientos intensos en casa o en gimnasio.',
     reviews: [{ rating: 5 }, { rating: 4 }, { rating: 5 }],
   },
@@ -185,6 +214,29 @@ export default function App() {
     description: '',
   });
   const [reviewDraft, setReviewDraft] = useState(5);
+  const [compareIds, setCompareIds] = useState([]);
+  const [brandFilter, setBrandFilter] = useState('Todas');
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [appliedMinPrice, setAppliedMinPrice] = useState('');
+  const [appliedMaxPrice, setAppliedMaxPrice] = useState('');
+  const [availabilityFilter, setAvailabilityFilter] = useState('Todos');
+  const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [selectedVariantQty, setSelectedVariantQty] = useState(1);
+  const [questions, setQuestions] = useState({});
+  const [questionDraft, setQuestionDraft] = useState('');
+  const [addresses, setAddresses] = useState([]);
+  const [addressDraft, setAddressDraft] = useState({ id: '', alias: '', municipality: '', reference: '' });
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [shippingMode, setShippingMode] = useState('');
+  const [notifications, setNotifications] = useState([]);
+  const [stockSubscriptions, setStockSubscriptions] = useState([]);
+  const [supportCases, setSupportCases] = useState([]);
+  const [returnRequests, setReturnRequests] = useState([]);
+  const [cancelConfirmId, setCancelConfirmId] = useState(null);
+  const [supportDraft, setSupportDraft] = useState({ orderId: '', reason: 'Entrega', description: '' });
+  const [darkMode, setDarkMode] = useState(false);
+  const [largeText, setLargeText] = useState(false);
   const hasLoadedState = useRef(false);
   const noticeTimeout = useRef(null);
 
@@ -246,18 +298,42 @@ export default function App() {
             if (!entry || typeof entry.id !== 'string') return;
             const product = restoredProducts.find((item) => item.id === entry.id);
             const qty = Number(entry.qty);
-            if (!product || product.stock <= 0 || !Number.isInteger(qty) || qty <= 0) return;
+            if (!product || !Number.isInteger(qty) || qty <= 0) return;
+            const variant = entry.variantId
+              ? getProductVariants(product)?.find((item) => item.id === entry.variantId)
+              : null;
+            const availableStock = variant ? variant.stock : product.stock;
+            if (availableStock <= 0) return;
 
-            const existing = restoredCart.find((item) => item.id === entry.id);
+            const existing = restoredCart.find((item) =>
+              item.id === entry.id && (item.variantId || null) === (entry.variantId || null)
+            );
             if (existing) {
-              existing.qty = Math.min(existing.qty + qty, product.stock);
+              existing.qty = Math.min(existing.qty + qty, availableStock);
             } else {
-              restoredCart.push({ id: entry.id, qty: Math.min(qty, product.stock) });
+              restoredCart.push({
+                id: entry.id,
+                variantId: entry.variantId || null,
+                qty: Math.min(qty, availableStock),
+              });
             }
           });
         }
         setCart(restoredCart);
         setHistory(Array.isArray(parsed.history) ? parsed.history : []);
+        setAddresses(Array.isArray(parsed.addresses) ? parsed.addresses : []);
+        setSelectedAddressId(
+          Array.isArray(parsed.addresses)
+            ? parsed.addresses.find((address) => address.isPrimary)?.id || null
+            : null
+        );
+        setQuestions(parsed.questions && typeof parsed.questions === 'object' ? parsed.questions : {});
+        setNotifications(Array.isArray(parsed.notifications) ? parsed.notifications : []);
+        setStockSubscriptions(Array.isArray(parsed.stockSubscriptions) ? parsed.stockSubscriptions : []);
+        setSupportCases(Array.isArray(parsed.supportCases) ? parsed.supportCases : []);
+        setReturnRequests(Array.isArray(parsed.returnRequests) ? parsed.returnRequests : []);
+        setDarkMode(parsed.darkMode === true);
+        setLargeText(parsed.largeText === true);
       } catch (error) {
         console.log('Error loading store:', error);
         setProducts(initialProducts);
@@ -283,6 +359,14 @@ export default function App() {
             favorites,
             cart,
             history,
+            addresses,
+            questions,
+            notifications,
+            stockSubscriptions,
+            supportCases,
+            returnRequests,
+            darkMode,
+            largeText,
           })
         );
       } catch (error) {
@@ -291,7 +375,7 @@ export default function App() {
     };
 
     saveState();
-  }, [products, favorites, cart, history]);
+  }, [products, favorites, cart, history, addresses, questions, notifications, stockSubscriptions, supportCases, returnRequests, darkMode, largeText]);
 
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === selectedProductId) || null,
@@ -303,7 +387,22 @@ export default function App() {
       const matchesSearch =
         !search.trim() || product.name.toLowerCase().includes(search.trim().toLowerCase());
       const matchesCategory = categoryFilter === 'Todas' || product.category === categoryFilter;
-      return matchesSearch && matchesCategory;
+      const brand = product.brand || 'Sin marca';
+      const matchesBrand = brandFilter === 'Todas' || brand === brandFilter;
+      const minimum = appliedMinPrice === '' ? null : Number(appliedMinPrice);
+      const maximum = appliedMaxPrice === '' ? null : Number(appliedMaxPrice);
+      const matchesMinimum = minimum === null || product.price >= minimum;
+      const matchesMaximum = maximum === null || product.price <= maximum;
+      const hasVariantAvailability = getProductVariants(product)
+        ? getProductVariants(product).some((variant) => variant.stock > 0)
+        : false;
+      const available = getProductVariants(product) ? hasVariantAvailability : product.stock > 0;
+      const matchesAvailability =
+        availabilityFilter === 'Todos' ||
+        (availabilityFilter === 'Disponible' && available) ||
+        (availabilityFilter === 'Agotado' && !available);
+      return matchesSearch && matchesCategory && matchesBrand && matchesMinimum &&
+        matchesMaximum && matchesAvailability;
     });
 
     if (sortMode === 'asc') {
@@ -314,7 +413,7 @@ export default function App() {
     }
 
     return list;
-  }, [products, search, categoryFilter, sortMode]);
+  }, [products, search, categoryFilter, sortMode, brandFilter, appliedMinPrice, appliedMaxPrice, availabilityFilter]);
 
   const favoriteProducts = products.filter((product) => favorites.includes(product.id));
 
@@ -322,12 +421,24 @@ export default function App() {
     .map((entry) => {
       const product = products.find((item) => item.id === entry.id);
       if (!product) return null;
-      return { ...entry, product };
+      const variant = entry.variantId
+        ? getProductVariants(product)?.find((item) => item.id === entry.variantId) || null
+        : null;
+      return {
+        ...entry,
+        product,
+        variant,
+        unitPrice: variant ? variant.price : product.price,
+      };
     })
     .filter(Boolean);
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.qty * item.product.price, 0);
-  const shipping = cartItems.length === 0 ? 0 : subtotal < 150000 ? 8000 : 0;
+  const subtotal = cartItems.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
+  const selectedAddress = addresses.find((address) => address.id === selectedAddressId) || null;
+  const shipping =
+    cartItems.length === 0 || !selectedAddress || !shippingMode
+      ? 0
+      : SHIPPING_RATES[selectedAddress.municipality]?.[shippingMode] || 0;
   const couponDiscount =
     couponApplied && cartItems.length > 0 ? Math.round(subtotal * COUPON_RATE) : 0;
   const total = Math.max(subtotal + shipping - couponDiscount, 0);
@@ -364,57 +475,123 @@ export default function App() {
     showNotice(isFavorite ? 'Producto quitado de favoritos.' : 'Producto agregado a favoritos.');
   };
 
-  const addToCart = (product) => {
+  const addToCart = (product, variant = null, quantity = 1) => {
     if (!product || product.stock <= 0) {
       showNotice('Este producto está agotado.');
       return;
     }
 
-    const existing = cart.find((item) => item.id === product.id);
-    if (existing && existing.qty + 1 > product.stock) {
-      showNotice('No hay suficiente stock para esa cantidad.');
+    if (getProductVariants(product) && !variant) {
+      showNotice('Selecciona una variante antes de agregar el producto.');
+      return;
+    }
+
+    const availableStock = variant ? variant.stock : product.stock;
+    const requestedQty = Number(quantity);
+    if (!Number.isInteger(requestedQty) || requestedQty <= 0) {
+      showNotice('La cantidad debe ser un número entero válido.');
+      return;
+    }
+    if (requestedQty > availableStock) {
+      showNotice(`Stock insuficiente. Máximo permitido: ${availableStock} unidad(es).`);
+      return;
+    }
+
+    const existing = cart.find((item) => item.id === product.id && item.variantId === (variant?.id || null));
+    if (existing && existing.qty + requestedQty > availableStock) {
+      showNotice(`Stock insuficiente. Máximo permitido: ${availableStock} unidad(es).`);
       return;
     }
 
     setCart((previous) => {
       return existing
         ? previous.map((item) =>
-            item.id === product.id ? { ...item, qty: item.qty + 1 } : item
+            item.id === product.id && item.variantId === (variant?.id || null)
+              ? { ...item, qty: item.qty + requestedQty }
+              : item
           )
-        : [...previous, { id: product.id, qty: 1 }];
+        : [...previous, { id: product.id, variantId: variant?.id || null, qty: requestedQty }];
     });
     showNotice(existing ? `Cantidad de ${product.name} actualizada.` : `${product.name} agregado al carrito.`);
   };
 
-  const changeCartQty = (productId, delta) => {
-    const item = cart.find((entry) => entry.id === productId);
+  const changeCartQty = (productId, variantId, delta) => {
+    const item = cart.find((entry) =>
+      entry.id === productId && (entry.variantId || null) === (variantId || null)
+    );
     const product = products.find((entry) => entry.id === productId);
     if (!item || !product) return;
 
     const nextQty = item.qty + delta;
-    if (nextQty > product.stock) {
+    const variant = variantId
+      ? getProductVariants(product)?.find((entry) => entry.id === variantId)
+      : null;
+    const availableStock = variant ? variant.stock : product.stock;
+    if (nextQty > availableStock) {
       showNotice('La cantidad supera el stock disponible.');
       return;
     }
 
     if (nextQty <= 0) {
-      setCart((previous) => previous.filter((entry) => entry.id !== productId));
+      setCart((previous) => previous.filter((entry) =>
+        !(entry.id === productId && (entry.variantId || null) === (variantId || null))
+      ));
       showNotice(`${product.name} quitado del carrito.`);
       return;
     }
 
     setCart((previous) =>
       previous.map((entry) =>
-        entry.id === productId ? { ...entry, qty: nextQty } : entry
+        entry.id === productId && (entry.variantId || null) === (variantId || null)
+          ? { ...entry, qty: nextQty }
+          : entry
       )
     );
     showNotice(`Cantidad de ${product.name} actualizada: ${nextQty}.`);
   };
 
-  const removeFromCart = (productId) => {
-    setCart((previous) => previous.filter((item) => item.id !== productId));
+  const removeFromCart = (productId, variantId = null) => {
+    setCart((previous) => previous.filter((item) =>
+      !(item.id === productId && (item.variantId || null) === (variantId || null))
+    ));
     const product = products.find((item) => item.id === productId);
     if (product) showNotice(`${product.name} quitado del carrito.`);
+  };
+
+  const addNotification = (eventKey, message) => {
+    setNotifications((previous) =>
+      previous.some((item) => item.eventKey === eventKey)
+        ? previous
+        : [{ id: `NOT-${Date.now()}-${previous.length}`, eventKey, message, read: false, createdAt: new Date().toISOString() }, ...previous]
+    );
+  };
+
+  const applyFilters = () => {
+    const minimum = minPrice.trim() === '' ? null : Number(minPrice);
+    const maximum = maxPrice.trim() === '' ? null : Number(maxPrice);
+    if (
+      (minimum !== null && (!Number.isFinite(minimum) || minimum < 0)) ||
+      (maximum !== null && (!Number.isFinite(maximum) || maximum < 0))
+    ) {
+      showNotice('Los precios deben ser números mayores o iguales a cero.');
+      return;
+    }
+    if (minimum !== null && maximum !== null && minimum > maximum) {
+      showNotice('El precio mínimo no puede ser mayor que el precio máximo.');
+      return;
+    }
+    setAppliedMinPrice(minPrice.trim());
+    setAppliedMaxPrice(maxPrice.trim());
+    showNotice('Filtros aplicados.');
+  };
+
+  const resetFilters = () => {
+    setBrandFilter('Todas');
+    setMinPrice('');
+    setMaxPrice('');
+    setAppliedMinPrice('');
+    setAppliedMaxPrice('');
+    setAvailabilityFilter('Todos');
   };
 
   const applyCoupon = () => {
@@ -446,6 +623,19 @@ export default function App() {
   const handleConfirmPurchase = () => {
     if (!cartItems.length) {
       showNotice('El carrito está vacío.');
+      return;
+    }
+
+    if (!selectedAddressId || !selectedAddress) {
+      showNotice('Selecciona una dirección antes de finalizar la compra.');
+      return;
+    }
+    if (!shippingMode) {
+      showNotice('Selecciona una modalidad de envío antes de finalizar la compra.');
+      return;
+    }
+    if (!SHIPPING_RATES[selectedAddress.municipality]?.[shippingMode]) {
+      showNotice('El municipio seleccionado no tiene envío disponible.');
       return;
     }
 
@@ -483,7 +673,10 @@ export default function App() {
     }
 
     for (const item of cartItems) {
-      if (item.qty > item.product.stock) {
+      const stock = item.variant
+        ? item.variant.stock
+        : item.product.stock;
+      if (item.qty > stock) {
         showNotice(`No hay stock suficiente para ${item.product.name}.`);
         return;
       }
@@ -493,12 +686,19 @@ export default function App() {
       id: generateOrderCode(),
       createdAt: new Date().toISOString(),
       buyer: cleanBuyer,
+      status: 'Confirmado',
+      statusHistory: [{ status: 'Confirmado', createdAt: new Date().toISOString() }],
+      address: selectedAddress,
+      shippingMode,
+      shippingDays: SHIPPING_RATES[selectedAddress.municipality].days,
       items: cartItems.map((item) => ({
         id: item.product.id,
         name: item.product.name,
         category: item.product.category,
+        variantId: item.variantId,
+        variantName: item.variant?.label || null,
         qty: item.qty,
-        price: item.product.price,
+        price: item.unitPrice,
       })),
       subtotal,
       shipping,
@@ -509,9 +709,22 @@ export default function App() {
 
     setProducts((previous) =>
       previous.map((product) => {
-        const selectedItem = cartItems.find((entry) => entry.id === product.id);
-        if (!selectedItem) return product;
-        return { ...product, stock: Math.max(0, product.stock - selectedItem.qty) };
+        const selectedItems = cartItems.filter((entry) => entry.id === product.id);
+        if (!selectedItems.length) return product;
+        let next = { ...product };
+        if (getProductVariants(product)) {
+          next.variants = getProductVariants(product).map((variant) => {
+            const selected = selectedItems.find((entry) => entry.variantId === variant.id);
+            return selected
+              ? { ...variant, stock: Math.max(0, variant.stock - selected.qty) }
+              : variant;
+          });
+          next.stock = next.variants.reduce((sum, variant) => sum + variant.stock, 0);
+        } else {
+          const selected = selectedItems.reduce((sum, entry) => sum + entry.qty, 0);
+          next.stock = Math.max(0, product.stock - selected);
+        }
+        return next;
       })
     );
 
@@ -638,9 +851,33 @@ export default function App() {
       <View style={styles.productContent}>
         <View style={styles.productHeaderRow}>
           <Text style={styles.productName}>{product.name}</Text>
-          <Pressable onPress={() => toggleFavorite(product.id)}>
-            <Text style={styles.favoriteText}>{favorites.includes(product.id) ? '♥' : '♡'}</Text>
-          </Pressable>
+          <View style={styles.cardActionRow}>
+            <Pressable onPress={() => toggleFavorite(product.id)}>
+              <Text style={styles.favoriteText}>{favorites.includes(product.id) ? '♥' : '♡'}</Text>
+            </Pressable>
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation?.();
+                if (compareIds.includes(product.id)) {
+                  setCompareIds((previous) => previous.filter((id) => id !== product.id));
+                  showNotice('Producto retirado de la comparación.');
+                } else if (compareIds.length >= 3) {
+                  showNotice('Solo puedes comparar hasta tres productos.');
+                } else {
+                  setCompareIds((previous) => [...previous, product.id]);
+                  showNotice('Producto agregado a la comparación.');
+                }
+              }}
+              style={[
+                styles.compareChip,
+                compareIds.includes(product.id) && styles.compareChipActive,
+              ]}
+            >
+              <Text style={styles.compareChipText}>
+                {compareIds.includes(product.id) ? 'Comparando' : 'Comparar'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         <Text style={styles.productMeta}>
@@ -662,6 +899,64 @@ export default function App() {
         placeholder="Buscar productos"
         style={styles.input}
       />
+
+      <View style={styles.filterBox}>
+        <Text style={styles.label}>Filtros combinados</Text>
+        <Text style={styles.label}>Marca</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+          {['Todas', ...new Set(products.map((product) => product.brand || 'Sin marca'))].map((brand) => (
+            <Pressable
+              key={brand}
+              onPress={() => setBrandFilter(brand)}
+              style={[styles.categoryChip, brandFilter === brand && styles.categoryChipActive]}
+            >
+              <Text
+                style={[
+                  styles.categoryChipText,
+                  brandFilter === brand && styles.categoryChipTextActive,
+                ]}
+              >
+                {brand}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+        <View style={styles.filterPriceRow}>
+          <TextInput
+            value={minPrice}
+            onChangeText={setMinPrice}
+            placeholder="Precio mínimo"
+            keyboardType="numeric"
+            style={[styles.input, styles.filterInput]}
+          />
+          <TextInput
+            value={maxPrice}
+            onChangeText={setMaxPrice}
+            placeholder="Precio máximo"
+            keyboardType="numeric"
+            style={[styles.input, styles.filterInput]}
+          />
+        </View>
+        <View style={styles.sortOptions}>
+          {['Todos', 'Disponible', 'Agotado'].map((option) => (
+            <Pressable
+              key={option}
+              onPress={() => setAvailabilityFilter(option)}
+              style={[styles.sortButton, availabilityFilter === option && styles.sortButtonActive]}
+            >
+              <Text style={styles.sortButtonText}>{option}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.filterActions}>
+          <Pressable onPress={applyFilters} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Aplicar filtros</Text>
+          </Pressable>
+          <Pressable onPress={resetFilters} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Restablecer</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <Text style={styles.label}>Categorías</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
@@ -710,6 +1005,36 @@ export default function App() {
         </View>
       </View>
 
+      {compareIds.length > 0 && (
+        <View style={styles.compareBox}>
+          <Text style={styles.summaryTitle}>Comparador ({compareIds.length}/3)</Text>
+          <View style={styles.compareColumns}>
+            {compareIds.map((id) => {
+              const product = products.find((item) => item.id === id);
+              if (!product) return null;
+              const variants = getProductVariants(product);
+              const available = variants
+                ? variants.some((variant) => variant.stock > 0)
+                : product.stock > 0;
+              return (
+                <View key={id} style={styles.compareColumn}>
+                  <Text style={styles.compareName}>{product.name}</Text>
+                  <Text style={styles.orderDetailText}>Marca: {product.brand || 'Sin marca'}</Text>
+                  <Text style={styles.orderDetailText}>{money(product.price)}</Text>
+                  <Text style={styles.orderDetailText}>{available ? 'Disponible' : 'Agotado'}</Text>
+                  <Pressable
+                    onPress={() => setCompareIds((previous) => previous.filter((item) => item !== id))}
+                    style={styles.deleteButton}
+                  >
+                    <Text style={styles.deleteButtonText}>Retirar</Text>
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
       {filteredProducts.length ? (
         filteredProducts.map(renderProductCard)
       ) : (
@@ -735,6 +1060,15 @@ export default function App() {
     if (!selectedProduct) return null;
 
     const productRating = averageRating(selectedProduct.reviews);
+    const variants = getProductVariants(selectedProduct);
+    const selectedVariant = variants?.find((variant) => variant.id === selectedVariantId) || null;
+    const relatedProducts = products.filter((product) =>
+      product.id !== selectedProduct.id &&
+      product.category === selectedProduct.category &&
+      (getProductVariants(product)
+        ? getProductVariants(product).some((variant) => variant.stock > 0)
+        : product.stock > 0)
+    ).slice(0, 4);
 
     return (
       <View style={styles.screenBlock}>
@@ -748,6 +1082,20 @@ export default function App() {
             </Text>
           </Pressable>
         </View>
+        <Pressable
+          onPress={async () => {
+            try {
+              await Share.share({
+                message: `${selectedProduct.name} - ${money(selectedProduct.price)}. Recomendación de NexaMarket (demo, sin sitio público publicado).`,
+              });
+            } catch (_error) {
+              showNotice('No fue posible abrir compartir.');
+            }
+          }}
+          style={styles.secondaryButton}
+        >
+          <Text style={styles.secondaryButtonText}>Compartir producto</Text>
+        </Pressable>
 
         <View style={styles.detailVisual}>
           <Text style={styles.visualLarge}>{selectedProduct.name.slice(0, 2).toUpperCase()}</Text>
@@ -760,9 +1108,48 @@ export default function App() {
         <Text style={styles.detailRating}>{productRating.toFixed(1)} ★ · {selectedProduct.reviews?.length || 0} valoraciones</Text>
         <Text style={styles.detailDescription}>{selectedProduct.description}</Text>
 
+        {variants && (
+          <View style={styles.variantBox}>
+            <Text style={styles.label}>Elige una variante</Text>
+            {variants.map((variant) => (
+              <Pressable
+                key={variant.id}
+                onPress={() => {
+                  setSelectedVariantId(variant.id);
+                  setSelectedVariantQty(1);
+                }}
+                style={[
+                  styles.variantOption,
+                  selectedVariantId === variant.id && styles.variantOptionActive,
+                  variant.stock <= 0 && styles.variantOptionDisabled,
+                ]}
+                disabled={variant.stock <= 0}
+              >
+                <Text style={styles.variantName}>
+                  {variant.label} · {money(variant.price)}
+                </Text>
+                <Text style={styles.variantStock}>
+                  {variant.stock > 0 ? `${variant.stock} disponibles` : 'Agotado'}
+                </Text>
+              </Pressable>
+            ))}
+            {selectedVariant && (
+              <View style={styles.variantQuantityRow}>
+                <Text style={styles.label}>Cantidad máxima: {selectedVariant.stock}</Text>
+                <TextInput
+                  value={String(selectedVariantQty)}
+                  onChangeText={(value) => setSelectedVariantQty(Number(value) || 0)}
+                  keyboardType="numeric"
+                  style={[styles.input, styles.quantityInput]}
+                />
+              </View>
+            )}
+          </View>
+        )}
+
         <Pressable
-          onPress={() => addToCart(selectedProduct)}
-          style={[styles.primaryButton, selectedProduct.stock <= 0 && styles.buttonDisabled]}
+          onPress={() => addToCart(selectedProduct, selectedVariant, selectedVariantQty)}
+          style={[styles.primaryButton, (selectedProduct.stock <= 0 || (variants && !selectedVariant)) && styles.buttonDisabled]}
           disabled={selectedProduct.stock <= 0}
         >
           <Text style={styles.primaryButtonText}>
@@ -784,6 +1171,119 @@ export default function App() {
         <Pressable onPress={submitReview} style={styles.secondaryButton}>
           <Text style={styles.secondaryButtonText}>Guardar valoración</Text>
         </Pressable>
+
+        <View style={styles.filterBox}>
+          <Text style={styles.summaryTitle}>Productos relacionados</Text>
+          {relatedProducts.length ? relatedProducts.map((product) => (
+            <Pressable
+              key={product.id}
+              onPress={() => {
+                setSelectedProductId(product.id);
+                setSelectedVariantId(null);
+                setSelectedVariantQty(1);
+                setScreen('detail');
+              }}
+              style={styles.historyCard}
+            >
+              <Text style={styles.cartItemName}>{product.name}</Text>
+              <Text style={styles.cartItemMeta}>{product.brand || 'Sin marca'} · {money(product.price)}</Text>
+            </Pressable>
+          )) : (
+            <Text style={styles.emptyText}>No hay productos relacionados disponibles.</Text>
+          )}
+        </View>
+
+        <View style={styles.filterBox}>
+          <Text style={styles.summaryTitle}>Preguntas</Text>
+          {(questions[selectedProduct.id] || []).map((question) => (
+            <View key={question.id} style={styles.orderDetailBox}>
+              <Text style={styles.orderDetailText}>{question.text}</Text>
+              <Text style={styles.cartItemMeta}>
+                {new Date(question.createdAt).toLocaleString('es-CO')} · {question.status}
+              </Text>
+              {question.status === 'Respondida' && (
+                <Text style={styles.orderDetailText}>Respuesta demostrativa: {question.answer}</Text>
+              )}
+            </View>
+          ))}
+          {!questions[selectedProduct.id]?.length && (
+            <Text style={styles.emptyText}>Todavía no hay preguntas para este producto.</Text>
+          )}
+          <TextInput
+            value={questionDraft}
+            onChangeText={setQuestionDraft}
+            placeholder="Escribe una pregunta"
+            multiline
+            style={[styles.input, styles.textArea]}
+          />
+          <Pressable
+            onPress={() => {
+              const text = questionDraft.trim();
+              if (text.length < 10) {
+                showNotice('La pregunta debe tener al menos 10 caracteres.');
+                return;
+              }
+              const question = {
+                id: `P-${Date.now()}`,
+                text,
+                status: 'Pendiente',
+                createdAt: new Date().toISOString(),
+              };
+              setQuestions((previous) => ({
+                ...previous,
+                [selectedProduct.id]: [...(previous[selectedProduct.id] || []), question],
+              }));
+              setQuestionDraft('');
+              showNotice('Pregunta registrada como Pendiente.');
+            }}
+            style={styles.secondaryButton}
+          >
+            <Text style={styles.secondaryButtonText}>Enviar pregunta</Text>
+          </Pressable>
+          {(questions[selectedProduct.id] || []).some((item) => item.status === 'Pendiente') && (
+            <Pressable
+              onPress={() => {
+                setQuestions((previous) => ({
+                  ...previous,
+                  [selectedProduct.id]: (previous[selectedProduct.id] || []).map((item) =>
+                    item.status === 'Pendiente'
+                      ? {
+                          ...item,
+                          status: 'Respondida',
+                          answer: 'Respuesta simulada del centro de demostración.',
+                        }
+                      : item
+                  ),
+                }));
+                showNotice('Las preguntas pendientes recibieron una respuesta demostrativa.');
+              }}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>Simular respuesta demostrativa</Text>
+            </Pressable>
+          )}
+
+          {((variants && variants.every((variant) => variant.stock <= 0)) ||
+            (!variants && selectedProduct.stock <= 0)) && (
+            <Pressable
+              onPress={() => {
+                const key = selectedVariantId || selectedProduct.id;
+                setStockSubscriptions((previous) =>
+                  previous.some((item) => item.articleKey === key)
+                    ? previous
+                    : [
+                        ...previous,
+                        { id: `SUB-${Date.now()}`, articleKey: key, productId: selectedProduct.id, variantId: selectedVariantId, active: true },
+                      ]
+                );
+                showNotice('Suscripción de reposición registrada una sola vez.');
+              }}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>Avisarme cuando haya stock</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
     );
   };
@@ -816,20 +1316,21 @@ export default function App() {
             <View key={item.id} style={styles.cartItem}>
               <View style={styles.cartItemInfo}>
                 <Text style={styles.cartItemName}>{item.product.name}</Text>
-                <Text style={styles.cartItemMeta}>{money(item.product.price)} c/u</Text>
+                {item.variant && <Text style={styles.cartItemMeta}>Variante: {item.variant.label}</Text>}
+                <Text style={styles.cartItemMeta}>{money(item.unitPrice)} c/u</Text>
               </View>
 
               <View style={styles.cartControls}>
-                <Pressable onPress={() => changeCartQty(item.id, -1)} style={styles.qtyButton}>
+                <Pressable onPress={() => changeCartQty(item.id, item.variantId, -1)} style={styles.qtyButton}>
                   <Text style={styles.qtyButtonText}>-</Text>
                 </Pressable>
                 <Text style={styles.qtyValue}>{item.qty}</Text>
-                <Pressable onPress={() => changeCartQty(item.id, 1)} style={styles.qtyButton}>
+                <Pressable onPress={() => changeCartQty(item.id, item.variantId, 1)} style={styles.qtyButton}>
                   <Text style={styles.qtyButtonText}>+</Text>
                 </Pressable>
               </View>
 
-              <Pressable onPress={() => removeFromCart(item.id)} style={styles.deleteButton}>
+              <Pressable onPress={() => removeFromCart(item.id, item.variantId)} style={styles.deleteButton}>
                 <Text style={styles.deleteButtonText}>Eliminar</Text>
               </Pressable>
             </View>
@@ -887,6 +1388,54 @@ export default function App() {
   const renderCheckoutScreen = () => (
     <View style={styles.screenBlock}>
       <Text style={styles.sectionTitle}>Datos del comprador</Text>
+      <View style={styles.filterBox}>
+        <Text style={styles.summaryTitle}>Dirección de entrega</Text>
+        {addresses.length ? addresses.map((address) => (
+          <Pressable
+            key={address.id}
+            onPress={() => setSelectedAddressId(address.id)}
+            style={[
+              styles.addressOption,
+              selectedAddressId === address.id && styles.addressOptionActive,
+            ]}
+          >
+            <Text style={styles.cartItemName}>
+              {address.alias} {address.isPrimary ? '· Principal' : ''}
+            </Text>
+            <Text style={styles.cartItemMeta}>
+              {address.municipality} · {address.reference}
+            </Text>
+          </Pressable>
+        )) : (
+          <Text style={styles.emptyText}>No tienes direcciones registradas.</Text>
+        )}
+        <Pressable onPress={() => setScreen('addresses')} style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>Administrar mis direcciones</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.filterBox}>
+        <Text style={styles.summaryTitle}>Modalidad de envío</Text>
+        {VALID_SHIPPING_MODES.map((mode) => (
+          <Pressable
+            key={mode}
+            onPress={() => setShippingMode(mode)}
+            style={[
+              styles.addressOption,
+              shippingMode === mode && styles.addressOptionActive,
+            ]}
+          >
+            <Text style={styles.cartItemName}>{mode}</Text>
+            {selectedAddress && SHIPPING_RATES[selectedAddress.municipality] ? (
+              <Text style={styles.cartItemMeta}>
+                {money(SHIPPING_RATES[selectedAddress.municipality][mode])} · {SHIPPING_RATES[selectedAddress.municipality].days}
+              </Text>
+            ) : (
+              <Text style={styles.cartItemMeta}>Elige una dirección compatible</Text>
+            )}
+          </Pressable>
+        ))}
+      </View>
       <TextInput
         value={buyer.name}
         onChangeText={(value) => setBuyer((previous) => ({ ...previous, name: value }))}
@@ -969,9 +1518,16 @@ export default function App() {
                 <Text style={styles.orderDetailTitle}>Detalle</Text>
                 <Text style={styles.orderDetailText}>Cliente: {order.buyer.name}</Text>
                 <Text style={styles.orderDetailText}>Municipio: {order.buyer.municipality}</Text>
+                <Text style={styles.orderDetailText}>Estado: {order.status || 'Confirmado'}</Text>
+                <Text style={styles.orderDetailTitle}>Historial de estados</Text>
+                {(order.statusHistory || [{ status: order.status || 'Confirmado', createdAt: order.createdAt }]).map((event, index) => (
+                  <Text key={`${order.id}-${event.status}-${index}`} style={styles.orderDetailText}>
+                    {new Date(event.createdAt).toLocaleString('es-CO')} · {event.status}
+                  </Text>
+                ))}
                 {order.items.map((item) => (
                   <Text key={`${order.id}-${item.id}`} style={styles.orderDetailText}>
-                    {item.name} x {item.qty} · {money(item.price)}
+                    {item.name}{item.variantName ? ` · ${item.variantName}` : ''} x {item.qty} · {money(item.price)}
                   </Text>
                 ))}
                 <Text style={styles.orderDetailText}>Subtotal: {money(order.subtotal)}</Text>
@@ -983,6 +1539,68 @@ export default function App() {
                   Descuento (10%): -{money(order.couponDiscount || 0)}
                 </Text>
                 <Text style={styles.orderDetailText}>Total final: {money(order.total)}</Text>
+                <Pressable
+                  onPress={() => advanceOrder(order.id)}
+                  style={styles.secondaryButton}
+                  disabled={['Entregado', 'Cancelado'].includes(order.status)}
+                >
+                  <Text style={styles.secondaryButtonText}>Simular avance de entrega</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const status = order.status || 'Confirmado';
+                    if (status === 'Cancelado') {
+                      showNotice('El pedido ya está cancelado; no se duplicarán reintegros.');
+                      return;
+                    }
+                    if (['En camino', 'Entregado'].includes(status)) {
+                      showNotice(
+                        status === 'Entregado'
+                          ? 'No se puede cancelar: el pedido ya fue entregado.'
+                          : 'No se puede cancelar: el pedido ya está en camino.'
+                      );
+                      return;
+                    }
+                    if (cancelConfirmId !== order.id) {
+                      setCancelConfirmId(order.id);
+                      showNotice('Confirma nuevamente la cancelación para restituir el stock.');
+                      return;
+                    }
+                    setCancelConfirmId(null);
+                    cancelOrder(order.id);
+                  }}
+                  style={styles.deleteButton}
+                >
+                  <Text style={styles.deleteButtonText}>
+                    {cancelConfirmId === order.id ? 'Confirmar cancelación' : 'Cancelar compra'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setSupportDraft((previous) => ({ ...previous, orderId: order.id }));
+                    setScreen('support');
+                  }}
+                  style={styles.secondaryButton}
+                >
+                  <Text style={styles.secondaryButtonText}>Solicitar ayuda</Text>
+                </Pressable>
+                {order.status === 'Entregado' && !returnRequests.some((item) => item.orderId === order.id) && (
+                  <Pressable
+                    onPress={() => {
+                      setReturnRequests((previous) => [
+                        ...previous,
+                        { id: `DEV-${Date.now()}`, orderId: order.id, status: 'Solicitada', createdAt: new Date().toISOString() },
+                      ]);
+                      showNotice('Devolución simulada solicitada.');
+                    }}
+                    style={styles.secondaryButton}
+                  >
+                    <Text style={styles.secondaryButtonText}>Solicitar devolución simulada</Text>
+                  </Pressable>
+                )}
+                {order.status !== 'Entregado' && (
+                  <Text style={styles.emptyText}>La devolución se habilita solo cuando el pedido está Entregado.</Text>
+                )}
               </View>
             )}
           </View>
@@ -1069,6 +1687,416 @@ export default function App() {
     </View>
   );
 
+  const saveAddress = () => {
+    const alias = addressDraft.alias.trim();
+    const municipality = addressDraft.municipality.trim();
+    const reference = addressDraft.reference.trim();
+    if (!alias || !municipality || !reference) {
+      showNotice('Completa alias, municipio y referencia de entrega.');
+      return;
+    }
+    if (!SHIPPING_RATES[municipality]) {
+      showNotice('Municipio no compatible. Usa Mosquera, Funza o Madrid.');
+      return;
+    }
+    setAddresses((previous) => {
+      if (addressDraft.id) {
+        return previous.map((address) =>
+          address.id === addressDraft.id
+            ? { ...address, alias, municipality, reference }
+            : address
+        );
+      }
+      const id = `DIR-${Date.now()}`;
+      const isPrimary = previous.length === 0;
+      if (isPrimary) setSelectedAddressId(id);
+      return [...previous, { id, alias, municipality, reference, isPrimary }];
+    });
+    setAddressDraft({ id: '', alias: '', municipality: '', reference: '' });
+    showNotice('Dirección ficticia guardada correctamente.');
+  };
+
+  const renderAddressesScreen = () => (
+    <View style={styles.screenBlock}>
+      <Text style={styles.sectionTitle}>Mis direcciones</Text>
+      <TextInput
+        value={addressDraft.alias}
+        onChangeText={(value) => setAddressDraft((previous) => ({ ...previous, alias: value }))}
+        placeholder="Alias, ejemplo: Casa ficticia"
+        style={styles.input}
+      />
+      <TextInput
+        value={addressDraft.municipality}
+        onChangeText={(value) => setAddressDraft((previous) => ({ ...previous, municipality: value }))}
+        placeholder="Mosquera, Funza o Madrid"
+        style={styles.input}
+      />
+      <TextInput
+        value={addressDraft.reference}
+        onChangeText={(value) => setAddressDraft((previous) => ({ ...previous, reference: value }))}
+        placeholder="Referencia de entrega ficticia"
+        style={[styles.input, styles.textArea]}
+        multiline
+      />
+      <Pressable onPress={saveAddress} style={styles.primaryButton}>
+        <Text style={styles.primaryButtonText}>{addressDraft.id ? 'Guardar cambios' : 'Agregar dirección'}</Text>
+      </Pressable>
+
+      {addresses.map((address) => (
+        <View key={address.id} style={styles.historyCard}>
+          <Text style={styles.cartItemName}>{address.alias} {address.isPrimary ? '· Principal' : ''}</Text>
+          <Text style={styles.cartItemMeta}>{address.municipality} · {address.reference}</Text>
+          <View style={styles.sortOptions}>
+            <Pressable
+              onPress={() => {
+                setAddresses((previous) =>
+                  previous.map((item) => ({ ...item, isPrimary: item.id === address.id }))
+                );
+                setSelectedAddressId(address.id);
+                showNotice('Dirección principal actualizada.');
+              }}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>Usar como principal</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setAddressDraft({
+                id: address.id,
+                alias: address.alias,
+                municipality: address.municipality,
+                reference: address.reference,
+              })}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>Editar</Text>
+            </Pressable>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+
+  const advanceOrder = (orderId) => {
+    const order = history.find((item) => item.id === orderId);
+    if (!order) return;
+    const status = order.status || 'Confirmado';
+    if (status === 'En camino') {
+      const nextStatus = 'Entregado';
+      setHistory((previous) => previous.map((item) =>
+        item.id === orderId
+          ? {
+              ...item,
+              status: nextStatus,
+              statusHistory: [
+                ...(item.statusHistory || []),
+                { status: nextStatus, createdAt: new Date().toISOString() },
+              ],
+            }
+          : item
+      ));
+      addNotification(`order-${orderId}-${nextStatus}`, `Pedido ${orderId}: nuevo estado Entregado.`);
+      showNotice('Pedido entregado.');
+      return;
+    }
+    if (!['Confirmado', 'Preparando'].includes(status)) {
+      showNotice('El pedido no admite nuevas transiciones.');
+      return;
+    }
+    const nextStatus = status === 'Confirmado' ? 'Preparando' : 'En camino';
+    setHistory((previous) => previous.map((item) =>
+      item.id === orderId
+        ? {
+            ...item,
+            status: nextStatus,
+            statusHistory: [
+              ...(item.statusHistory || []),
+              { status: nextStatus, createdAt: new Date().toISOString() },
+            ],
+          }
+        : item
+    ));
+    addNotification(`order-${orderId}-${nextStatus}`, `Pedido ${orderId}: nuevo estado ${nextStatus}.`);
+    showNotice(`Pedido ${orderId} avanzado a ${nextStatus}.`);
+  };
+
+  const cancelOrder = (orderId) => {
+    const order = history.find((item) => item.id === orderId);
+    if (!order) return;
+    const status = order.status || 'Confirmado';
+    if (status === 'Cancelado' || order.cancellationProcessed) {
+      showNotice('El pedido ya está cancelado; no se duplicarán reintegros.');
+      return;
+    }
+    if (!['Confirmado', 'Preparando'].includes(status)) {
+      showNotice(
+        status === 'Entregado'
+          ? 'No se puede cancelar: el pedido ya fue entregado.'
+          : status === 'En camino'
+            ? 'No se puede cancelar: el pedido ya está en camino.'
+            : 'El estado actual no permite cancelar la compra.'
+      );
+      return;
+    }
+
+    setProducts((previous) => previous.map((product) => {
+      const orderItems = (order.items || []).filter((item) => item.id === product.id);
+      if (!orderItems.length) return product;
+      if (getProductVariants(product)) {
+        const variants = getProductVariants(product).map((variant) => {
+          const quantity = orderItems
+            .filter((item) => item.variantId === variant.id)
+            .reduce((sum, item) => sum + item.qty, 0);
+          return { ...variant, stock: variant.stock + quantity };
+        });
+        return { ...product, variants, stock: variants.reduce((sum, variant) => sum + variant.stock, 0) };
+      }
+      const quantity = orderItems.reduce((sum, item) => sum + item.qty, 0);
+      return { ...product, stock: product.stock + quantity };
+    }));
+    setHistory((previous) => previous.map((item) =>
+      item.id === orderId
+        ? {
+            ...item,
+            status: 'Cancelado',
+              cancellationProcessed: true,
+            statusHistory: [
+              ...(item.statusHistory || []),
+              { status: 'Cancelado', createdAt: new Date().toISOString() },
+            ],
+          }
+        : item
+    ));
+    addNotification(`order-${orderId}-Cancelado`, `Pedido ${orderId}: nuevo estado Cancelado.`);
+    showNotice('Compra cancelada y unidades restituidas.');
+  };
+
+  const renderNotificationsScreen = () => (
+    <View style={styles.screenBlock}>
+      <Text style={styles.sectionTitle}>Notificaciones</Text>
+      {notifications.length ? notifications.map((notification) => (
+        <Pressable
+          key={notification.id}
+          onPress={() => setNotifications((previous) =>
+            previous.map((item) =>
+              item.id === notification.id ? { ...item, read: true } : item
+            )
+          )}
+          style={[
+            styles.historyCard,
+            notification.read ? styles.notificationRead : styles.notificationUnread,
+          ]}
+        >
+          <Text style={styles.cartItemName}>{notification.message}</Text>
+          <Text style={styles.cartItemMeta}>
+            {new Date(notification.createdAt).toLocaleString('es-CO')} · {notification.read ? 'Leído' : 'Sin leer'}
+          </Text>
+        </Pressable>
+      )) : (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>No tienes notificaciones</Text>
+          <Text style={styles.emptyText}>Los cambios de pedidos y reposiciones aparecerán aquí.</Text>
+        </View>
+      )}
+    </View>
+  );
+
+  const renderRestockScreen = () => (
+    <View style={styles.screenBlock}>
+      <Text style={styles.sectionTitle}>Demostración de reposición</Text>
+      <Text style={styles.emptyText}>Acción ficticia para practicar: no modifica órdenes reales ni inventario real.</Text>
+      {stockSubscriptions.map((subscription) => {
+        const product = products.find((item) => item.id === subscription.productId);
+        if (!subscription.active || !product) return null;
+        const variant = subscription.variantId
+          ? getProductVariants(product)?.find((item) => item.id === subscription.variantId)
+          : null;
+        return (
+          <View key={subscription.id} style={styles.historyCard}>
+            <Text style={styles.cartItemName}>
+              {product.name}{variant ? ` · ${variant.label}` : ''}
+            </Text>
+            <Text style={styles.cartItemMeta}>Suscripción activa</Text>
+            <View style={styles.sortOptions}>
+              <Pressable
+                onPress={() => {
+                  setProducts((previous) => previous.map((item) => {
+                    if (item.id !== product.id) return item;
+                    if (subscription.variantId && getProductVariants(item)) {
+                      const variants = getProductVariants(item).map((entry) =>
+                        entry.id === subscription.variantId
+                          ? { ...entry, stock: entry.stock + 5 }
+                          : entry
+                      );
+                      return { ...item, variants, stock: variants.reduce((sum, entry) => sum + entry.stock, 0) };
+                    }
+                    return { ...item, stock: item.stock + 5 };
+                  }));
+                  setStockSubscriptions((previous) =>
+                    previous.map((item) =>
+                      item.id === subscription.id ? { ...item, active: false } : item
+                    )
+                  );
+                  addNotification(
+                    `restock-${subscription.id}-${Date.now()}`,
+                    `Reposición simulada: ${product.name}${variant ? ` · ${variant.label}` : ''} vuelve a estar disponible.`
+                  );
+                  showNotice('Reposición simulada completada.');
+                }}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.secondaryButtonText}>Simular reposición</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setStockSubscriptions((previous) =>
+                    previous.map((item) =>
+                      item.id === subscription.id ? { ...item, active: false } : item
+                    )
+                  );
+                  showNotice('Suscripción cancelada.');
+                }}
+                style={styles.deleteButton}
+              >
+                <Text style={styles.deleteButtonText}>Cancelar aviso</Text>
+              </Pressable>
+            </View>
+          </View>
+        );
+      })}
+      {!stockSubscriptions.some((subscription) => subscription.active) && (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>Sin suscripciones activas</Text>
+          <Text style={styles.emptyText}>Solicita Avisarme desde un artículo agotado.</Text>
+        </View>
+      )}
+    </View>
+  );
+
+  const createSupportCase = () => {
+    if (!supportDraft.orderId) {
+      showNotice('Selecciona un pedido antes de enviar la solicitud.');
+      return;
+    }
+    if (!supportDraft.description.trim() || supportDraft.description.trim().length < 15) {
+      showNotice('La descripción debe tener al menos 15 caracteres.');
+      return;
+    }
+    const caseNumber = `CAS-${String(supportCases.length + 1).padStart(4, '0')}-${supportDraft.orderId.slice(-4)}`;
+    setSupportCases((previous) => [
+      {
+        id: caseNumber,
+        orderId: supportDraft.orderId,
+        reason: supportDraft.reason,
+        description: supportDraft.description.trim(),
+        status: 'Abierto',
+        createdAt: new Date().toISOString(),
+      },
+      ...previous,
+    ]);
+    setSupportDraft({ orderId: '', reason: 'Entrega', description: '' });
+    showNotice(`Solicitud creada: ${caseNumber}`);
+  };
+
+  const renderSupportScreen = () => (
+    <View style={styles.screenBlock}>
+      <Text style={styles.sectionTitle}>Centro de ayuda</Text>
+      <Text style={styles.label}>Pedido</Text>
+      {history.length ? history.map((order) => (
+        <Pressable
+          key={order.id}
+          onPress={() => setSupportDraft((previous) => ({ ...previous, orderId: order.id }))}
+          style={[
+            styles.addressOption,
+            supportDraft.orderId === order.id && styles.addressOptionActive,
+          ]}
+        >
+          <Text style={styles.cartItemName}>{order.id}</Text>
+          <Text style={styles.cartItemMeta}>{order.status || 'Confirmado'} · {money(order.total)}</Text>
+        </Pressable>
+      )) : (
+        <Text style={styles.emptyText}>No hay pedidos en el historial.</Text>
+      )}
+      <Text style={styles.label}>Motivo</Text>
+      <View style={styles.sortOptions}>
+        {['Entrega', 'Producto', 'Otro'].map((reason) => (
+          <Pressable
+            key={reason}
+            onPress={() => setSupportDraft((previous) => ({ ...previous, reason }))}
+            style={[
+              styles.sortButton,
+              supportDraft.reason === reason && styles.sortButtonActive,
+            ]}
+          >
+            <Text style={styles.sortButtonText}>{reason}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <TextInput
+        value={supportDraft.description}
+        onChangeText={(value) => setSupportDraft((previous) => ({ ...previous, description: value }))}
+        placeholder="Describe la solicitud con al menos 15 caracteres"
+        multiline
+        style={[styles.input, styles.textArea]}
+      />
+      <Pressable onPress={createSupportCase} style={styles.primaryButton}>
+        <Text style={styles.primaryButtonText}>Enviar solicitud</Text>
+      </Pressable>
+
+      <Text style={styles.sectionTitle}>Mis casos</Text>
+      {supportCases.map((supportCase) => (
+        <View key={supportCase.id} style={styles.historyCard}>
+          <Text style={styles.historyCode}>{supportCase.id}</Text>
+          <Text style={styles.cartItemMeta}>
+            Pedido: {supportCase.orderId} · {supportCase.reason} · {supportCase.status}
+          </Text>
+          <Text style={styles.orderDetailText}>{supportCase.description}</Text>
+          {supportCase.status === 'Respondido' && (
+            <Text style={styles.orderDetailText}>Respuesta ficticia: {supportCase.answer}</Text>
+          )}
+          {supportCase.status === 'Abierto' && (
+            <Pressable
+              onPress={() => setSupportCases((previous) =>
+                previous.map((item) =>
+                  item.id === supportCase.id
+                    ? {
+                        ...item,
+                        status: 'Respondido',
+                        answer: 'Respuesta de prueba registrada por el centro de demostración.',
+                      }
+                    : item
+                )
+              )}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>Simular respuesta</Text>
+            </Pressable>
+          )}
+        </View>
+      ))}
+      {!supportCases.length && (
+        <Text style={styles.emptyText}>Todavía no hay solicitudes registradas.</Text>
+      )}
+    </View>
+  );
+
+  const renderSettingsScreen = () => (
+    <View style={styles.screenBlock}>
+      <Text style={styles.sectionTitle}>Accesibilidad</Text>
+      <Pressable
+        onPress={() => setDarkMode((previous) => !previous)}
+        style={styles.secondaryButton}
+      >
+        <Text style={styles.secondaryButtonText}>{darkMode ? 'Desactivar modo oscuro' : 'Activar modo oscuro'}</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => setLargeText((previous) => !previous)}
+        style={styles.secondaryButton}
+      >
+        <Text style={styles.secondaryButtonText}>{largeText ? 'Usar tamaño normal' : 'Aumentar tamaño de letra'}</Text>
+      </Pressable>
+    </View>
+  );
+
   const renderScreen = () => {
     if (screen === 'catalog') return renderCatalogScreen();
     if (screen === 'detail') return renderDetailScreen();
@@ -1077,11 +2105,22 @@ export default function App() {
     if (screen === 'checkout') return renderCheckoutScreen();
     if (screen === 'history') return renderHistoryScreen();
     if (screen === 'seller') return renderSellerScreen();
+    if (screen === 'addresses') return renderAddressesScreen();
+    if (screen === 'notifications') return renderNotificationsScreen();
+    if (screen === 'restock') return renderRestockScreen();
+    if (screen === 'support') return renderSupportScreen();
+    if (screen === 'settings') return renderSettingsScreen();
     return renderCatalogScreen();
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={[
+        styles.safeArea,
+        darkMode && { backgroundColor: '#0f172a' },
+        largeText && { paddingHorizontal: 2 },
+      ]}
+    >
       <StatusBar style="light" />
 
       <View style={styles.topBar}>
@@ -1096,6 +2135,11 @@ export default function App() {
           { key: 'cart', label: 'Carrito' },
           { key: 'history', label: 'Historial' },
           { key: 'seller', label: 'Vendedor' },
+          { key: 'addresses', label: 'Direcciones' },
+          { key: 'notifications', label: 'Avisos' },
+          { key: 'restock', label: 'Reposición' },
+          { key: 'support', label: 'Ayuda' },
+          { key: 'settings', label: 'Accesibilidad' },
         ].map((item) => (
           <Pressable
             key={item.key}
@@ -1565,5 +2609,119 @@ const styles = StyleSheet.create({
   },
   orderDetailText: {
     color: BRAND.dark,
+  },
+  cardActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  compareChip: {
+    backgroundColor: '#dbeafe',
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+  },
+  compareChipActive: {
+    backgroundColor: BRAND.accent,
+  },
+  compareChipText: {
+    color: BRAND.primary,
+    fontWeight: '800',
+    fontSize: 11,
+  },
+  filterBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    gap: 8,
+  },
+  filterPriceRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  filterInput: {
+    flex: 1,
+  },
+  filterActions: {
+    gap: 8,
+  },
+  compareBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    gap: 8,
+  },
+  compareColumns: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  compareColumn: {
+    flexGrow: 1,
+    minWidth: 150,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 8,
+    gap: 4,
+  },
+  compareName: {
+    color: BRAND.dark,
+    fontWeight: '800',
+  },
+  variantBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    gap: 8,
+  },
+  variantOption: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    padding: 10,
+  },
+  variantOptionActive: {
+    borderColor: BRAND.primary,
+    backgroundColor: '#dbeafe',
+  },
+  variantOptionDisabled: {
+    opacity: 0.55,
+  },
+  variantName: {
+    color: BRAND.dark,
+    fontWeight: '800',
+  },
+  variantStock: {
+    color: BRAND.muted,
+  },
+  variantQuantityRow: {
+    gap: 6,
+  },
+  quantityInput: {
+    width: 110,
+  },
+  addressOption: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 10,
+  },
+  addressOptionActive: {
+    borderColor: BRAND.primary,
+    backgroundColor: '#dbeafe',
+  },
+  notificationUnread: {
+    borderColor: BRAND.accent,
+  },
+  notificationRead: {
+    opacity: 0.75,
   },
 });
